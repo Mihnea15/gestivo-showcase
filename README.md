@@ -1,4 +1,4 @@
-# Gestivo — invoicing & sales SaaS for Romanian small businesses
+# Gestivo: invoicing & sales SaaS for Romanian small businesses
 
 > **Showcase repository.** Gestivo's source code is private (it is a commercial product).
 > This repo documents the architecture and includes a few representative, unmodified code excerpts.
@@ -8,7 +8,7 @@ Gestivo replaces the Word + Excel + WhatsApp + e-mail chaos of small service fir
 
 **client → offer → contract → invoice → payment → follow-up**
 
-Built solo, end to end — product, backend, frontend, infrastructure — between March and November 2026
+Built solo, end to end (product, backend, frontend, infrastructure), between March and November 2026
 (282 commits). Status: feature-complete; the commercial launch is waiting on administrative steps
 (company registration and ANAF SPV enrollment), not on code.
 
@@ -20,7 +20,7 @@ Built solo, end to end — product, backend, frontend, infrastructure — betwee
 |---|---|
 | ![Offers](screenshots/offers.png) | <img src="screenshots/mobile.png" width="260" alt="Mobile view"> |
 
-*Screenshots from the built-in demo mode — all data is fictitious.*
+*Screenshots from the built-in demo mode. All data is fictitious.*
 
 ---
 
@@ -82,18 +82,18 @@ flowchart LR
 
 **AI assistance** (AWS Bedrock in the EU, per-plan monthly quota, off by default)
 - Draft an offer from free-text notes.
-- AI-assisted bank-statement matching that proposes how one transfer splits across several invoices — always confirmed by the user.
+- AI-assisted bank-statement matching that proposes how one transfer splits across several invoices, always confirmed by the user.
 
 ## Engineering highlights (with code)
 
 | File | What it shows |
 |---|---|
 | [`samples/VatAllocator.php`](samples/VatAllocator.php) | Allocating a header discount across VAT groups so the stored totals, the PDF and the e-Factura XML can never disagree by a ban (EN 16931 rounding rules, remainder absorbed by the last group). |
-| [`samples/StripeWebhookIdempotency.php`](samples/StripeWebhookIdempotency.php) | Exactly-once webhook processing: claim row → handle → mark processed; stale-claim takeover if a worker died; never acknowledging an event nobody finished. |
+| [`samples/StripeWebhookIdempotency.php`](samples/StripeWebhookIdempotency.php) | Exactly-once webhook processing: claim the row, handle it, then mark it processed; stale-claim takeover if a worker died; never acknowledging an event nobody finished. |
 | [`samples/BankMatchingService.php`](samples/BankMatchingService.php) | Bank-statement matching with confidence levels, and race-safe confirmation (`SELECT … FOR UPDATE` on the bank line and the invoice, currency and balance guards). |
 | [`samples/ci.yml`](samples/ci.yml) | The GitHub Actions pipeline: PHP lint, Codeception against MySQL, "migrations really applied" and schema-drift checks, Docker image security baseline, frontend lint / Vitest / build, i18n parity, CSP hash check, dependency audits in their own job. |
 
-The comments in these files are the originals — they record the actual bugs each design decision fixed.
+The comments in these files are the originals. They record the actual bugs each design decision fixed.
 
 ## Tech stack
 
@@ -107,11 +107,11 @@ The comments in these files are the originals — they record the actual bugs ea
 
 ## Related
 
-- **Lămurit** — an AI spin-off: photograph an official letter (ANAF, bank, bailiff) and get a plain-Romanian explanation with deadlines and next steps. Next.js 16, Vercel AI SDK, Claude (Haiku preview → Sonnet analysis with Zod-structured output), Stripe credits, Upstash Redis.
+- **Lămurit**, an AI spin-off: photograph an official letter (ANAF, bank, bailiff) and get a plain-Romanian explanation with deadlines and next steps. Next.js 16, Vercel AI SDK, Claude (Haiku preview, then Sonnet analysis with Zod-structured output), Stripe credits, Upstash Redis.
 
 ## Author
 
-**Mihnea Gatej** — Full-Stack Developer (PHP / Yii2 · React · TypeScript)
+**Mihnea Gatej**, Full-Stack Developer (PHP / Yii2 · React · TypeScript)
 
 - E-mail: [mihnea.gatej.gb@gmail.com](mailto:mihnea.gatej.gb@gmail.com)
 - Phone: +40 727 158 188
