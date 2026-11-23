@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The jobs only read the repository; nothing here needs a token that can push,
+# comment or change settings.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (lint + tests + schema)
+    runs-on: ubuntu-latest
+    # One name for the test database, shared by every step. They used to disagree:
+    # the DB created here was `yii2basic_test` while config/test_db.php derives
+    # `<dev db>_test` = `gestivo_test`, so migrations and the whole functional suite
+    # ran against a database that did not exist.
+    env:
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      DB_TEST_NAME: gestivo_test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql, mbstring, gd, zip, intl, bcmath
+          coverage: none
+
+      # The runner ships MySQL pre-installed but stopped. The test DB DSN is
+      # hardcoded to host=localhost (config/test_db.php), so we use the local
+      # socket rather than a service container.
+      - name: Start MySQL and create test database
+        run: |
+          sudo systemctl start mysql
+          mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS ${DB_TEST_NAME} CHARACTER SET utf8mb4;"
+
+      - name: Install Composer dependencies
+        working-directory: backend
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # A syntax error in a file no test touches used to reach production unnoticed.
+      - name: PHP syntax check
+        working-directory: backend
+        run: |
+          find . -path ./vendor -prune -o -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l > /dev/null
+
+      # The suite builds ActiveRecord models, so the test DB needs its schema.
+      - name: Migrate test database
+        working-directory: backend
+        run: php tests/bin/yii migrate --interactive=0
+
+      # `yii migrate` printed "Unknown database" and still exited 0, so a broken
+      # migration step reported success and only the test run failed — with an error
+      # that pointed at the tests rather than at the schema. Assert the outcome.
+      - name: Verify migrations actually applied
+        run: |
+          count=$(mysql -uroot -proot -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_TEST_NAME}';")
+          echo "Tables in ${DB_TEST_NAME}: $count"
+          if [ "$count" -lt 20 ]; then
+            echo "::error::Test database has $count tables — migrations did not apply."
+            exit 1
+          fi
+
+      # Migrations applied is not the same as schema correct: engine, charset and FKs
+      # are what round 2 found silently wrong. Exits 1 on drift.
+      - name: Schema drift check
+        working-directory: backend
+        run: php tests/bin/yii schema-check
+
+      - name: Run tests
+        working-directory: backend
+        run: |
+          vendor/bin/codecept build
+          vendor/bin/codecept run
+
+  docker:
+    name: Backend (docker image builds)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Image-level breakage (a missing extension, the supercronic checksum, the MPM
+      # juggling, the php.ini copy) was only ever discovered on deploy.
+      - name: Build the production image
+        run: docker build -t gestivo-backend:ci backend
+
+      # PHP2Shell (CVE-2026-109618/109619) guard: assert what the built image actually
+      # runs, so a base-image bump or a dropped php.ini line cannot silently undo the fix.
+      - name: Check PHP security baseline in the image
+        run: |
+          docker run --rm --entrypoint php gestivo-backend:ci -r '
+            $progress = (bool) ini_get("session.upload_progress.enabled");
+            echo "PHP ", PHP_VERSION, ", session.upload_progress.enabled=", var_export($progress, true), PHP_EOL;
+            exit(version_compare(PHP_VERSION, "8.4.27", ">=") && !$progress ? 0 : 1);'
+
+      # The entrypoint runs migrations and the cron as www-data through setpriv; if the
+      # base image ever drops setpriv, the container would fail to start on deploy.
+      # Also: no local .env may end up in the image.
+      - name: Check the app user switch and the build context
+        run: |
+          test "$(docker run --rm --entrypoint setpriv gestivo-backend:ci --reuid=www-data --regid=www-data --init-groups id -un)" = "www-data"
+          docker run --rm --entrypoint sh gestivo-backend:ci -c 'test ! -e /app/.env && test ! -e /app/web/index-test.php'
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Check i18n locale parity
+        working-directory: frontend
+        run: npm run check-locales
+
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      # After the build: the hash is taken from dist/index.html, which is what is
+      # actually served. A silently stale hash means the theme script is blocked
+      # in production and the white flash returns, with nothing failing loudly.
+      - name: Check CSP allows the inline theme script
+        working-directory: frontend
+        run: npm run check-csp
+
+  # Dependency advisories run in their own job. They used to be steps before the
+  # tests, so a new advisory (published any day, no code change needed) turned CI
+  # red AND stopped the test suite and the build from running at all: CI stayed
+  # red from 2026-10-27 to 2026-11-09 with nothing actually tested. Now the tests
+  # always report, and this job still fails loudly on a known-vulnerable package.
+  audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      # Known-vulnerable dependencies must fail the build, not be discovered by the
+      # next audit (CVE-2026-59882 in guzzlehttp/psr7 got in exactly that way).
+      - name: Composer security audit
+        working-directory: backend
+        run: composer audit --locked --no-interaction
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.node-version
+
+      # Production dependencies only: dev-only advisories should not block a release,
+      # but anything shipped to the browser should. Reads the lockfile, no install.
+      - name: npm security audit (production deps)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=moderate --package-lock-only
