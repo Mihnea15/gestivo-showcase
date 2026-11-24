@@ -8,8 +8,8 @@ Gestivo replaces the Word + Excel + WhatsApp + e-mail chaos of small service fir
 
 **client → offer → contract → invoice → payment → follow-up**
 
-Built solo, end to end (product, backend, frontend, infrastructure), between March and November 2026
-(282 commits). Status: feature-complete; the commercial launch is waiting on administrative steps
+Built solo, end to end (product, backend, frontend, infrastructure), between March and November 2026.
+Status: feature-complete; the commercial launch is waiting on administrative steps
 (company registration and ANAF SPV enrollment), not on code.
 
 | Dashboard | Invoices |
